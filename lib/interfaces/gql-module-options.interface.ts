@@ -36,13 +36,13 @@ export type GraphqlWsContextExtra = {
   readonly request: IncomingMessage;
 };
 
-type SubscriptionTransportWsOnConnectOptions = [Object, WebSocket, ConnectionContext];
+export type SubscriptionTransportWsOnConnectOptions = [Object, WebSocket, ConnectionContext];
 
-type GraphQLWsOnConnectOptions = [Context<GraphqlWsContextExtra>];
+export type GraphQLWsOnConnectOptions = [Context<GraphqlWsContextExtra>];
 
-type SubscriptionTransportWsOnDisconnectOptions = [WebSocket, ConnectionContext];
+export type SubscriptionTransportWsOnDisconnectOptions = [WebSocket, ConnectionContext];
 
-type GraphQLWsOnDisconnectOptions = [Context<GraphqlWsContextExtra>, number, string];
+export type GraphQLWsOnDisconnectOptions = [Context<GraphqlWsContextExtra>, number, string];
 
 export interface SubscriptionConfig {
   path?: string;
