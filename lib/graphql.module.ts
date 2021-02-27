@@ -9,7 +9,7 @@ import { loadPackage } from '@nestjs/common/utils/load-package.util';
 import { ApplicationConfig, HttpAdapterHost } from '@nestjs/core';
 import { MetadataScanner } from '@nestjs/core/metadata-scanner';
 import { ApolloServerBase } from 'apollo-server-core';
-import { printSchema } from 'graphql';
+import { execute, ExecutionResult, printSchema, subscribe } from 'graphql';
 import { GraphQLAstExplorer } from './graphql-ast.explorer';
 import { GraphQLSchemaBuilder } from './graphql-schema.builder';
 import { GraphQLSchemaHost } from './graphql-schema.host';
@@ -33,8 +33,14 @@ import {
   mergeDefaults,
   normalizeRoutePath,
 } from './utils';
-import { isGraphQLWSSubscriptionConfig } from './graphql-ws/is-graphql-ws-subscription.util';
 import { GraphqlWsSubscriptionService } from './graphql-ws/graphql-ws-subscription.service';
+import * as ws from 'ws';
+import {
+  ExecutionParams,
+  SubscriptionServer,
+} from 'subscriptions-transport-ws';
+import { formatApolloErrors } from 'apollo-server-errors';
+import { Context } from 'apollo-server-core/src/types';
 
 @Module({
   imports: [GraphQLSchemaBuilderModule],
@@ -54,6 +60,7 @@ import { GraphqlWsSubscriptionService } from './graphql-ws/graphql-ws-subscripti
 export class GraphQLModule implements OnModuleInit, OnModuleDestroy {
   private _apolloServer: ApolloServerBase;
   private _graphQlWsServer?: GraphqlWsSubscriptionService;
+  private _subscriptionTransportWsServer?: SubscriptionServer;
 
   get apolloServer(): ApolloServerBase {
     return this._apolloServer;
@@ -156,28 +163,91 @@ export class GraphQLModule implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.registerGqlServer(apolloOptions);
-    if (this.options.installSubscriptionHandlers) {
-      if (isGraphQLWSSubscriptionConfig(this.options.subscriptions)) {
-        this._graphQlWsServer = new GraphqlWsSubscriptionService(
-          {
-            schema: apolloOptions.schema,
-            keepAlive: this.options.subscriptions.keepAlive,
-            context: this.options.context,
-            onConnect: this.options.subscriptions.onConnect,
-            onDisconnect: this.options.subscriptions.onDisconnect,
+    if (this.options.installSubscriptionHandlers && this.options.subscriptions) {
+      const graphqlWs = new ws.Server({ noServer: true });
+      const subTransWs = new ws.Server({ noServer: true });
+
+      this._graphQlWsServer = new GraphqlWsSubscriptionService(
+        {
+          schema: apolloOptions.schema,
+          keepAlive: this.options.subscriptions.keepAlive,
+          context: this.options.context,
+          onConnect: this.options.subscriptions.onConnect as any,
+          onDisconnect: this.options.subscriptions.onDisconnect as any,
+        },
+        graphqlWs,
+      );
+
+      this._subscriptionTransportWsServer = SubscriptionServer.create(
+        {
+          schema: apolloOptions.schema,
+          execute,
+          subscribe,
+          onConnect: this.options.subscriptions.onConnect
+            ? this.options.subscriptions.onConnect
+            : (connectionParams: Object) => ({ ...connectionParams }),
+          onDisconnect: this.options.subscriptions.onDisconnect,
+          onOperation: async (
+            message: { payload: any },
+            connection: ExecutionParams,
+          ) => {
+            connection.formatResponse = (value: ExecutionResult) => ({
+              ...value,
+              errors:
+                value.errors &&
+                formatApolloErrors([...value.errors], {
+                  formatter: apolloOptions.formatError,
+                  debug: apolloOptions.debug,
+                }),
+            });
+
+            connection.formatError = apolloOptions.formatError;
+
+            let context: Context = apolloOptions.context ? apolloOptions.context : { connection };
+
+            try {
+              context =
+                typeof apolloOptions.context === 'function'
+                  ? await apolloOptions.context({ connection, payload: message.payload })
+                  : context;
+            } catch (e) {
+              throw formatApolloErrors([e], {
+                formatter: apolloOptions.formatError,
+                debug: apolloOptions.debug,
+              })[0];
+            }
+
+            return { ...connection, context };
           },
-          httpAdapter.getHttpServer(),
-        );
-      } else {
-        this._apolloServer.installSubscriptionHandlers(
-          httpAdapter.getHttpServer(),
-        );
-      }
+          keepAlive: this.options.subscriptions.keepAlive,
+          validationRules: apolloOptions.validationRules
+        },
+        subTransWs
+      );
+      this._apolloServer.installSubscriptionHandlers(subTransWs);
+
+      httpAdapter.getHttpServer().on('upgrade', (req, socket, head) => {
+        const protocol = req.headers['sec-websocket-protocol'];
+        const protocols = Array.isArray(protocol)
+          ? protocol
+          : protocol?.split(',').map((p) => p.trim());
+
+        const wss =
+          protocols?.includes('graphql-ws') &&
+          !protocols.includes('graphql-transport-ws')
+            ? subTransWs
+            : graphqlWs;
+
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit('connection', ws, req);
+        });
+      });
     }
   }
 
   async onModuleDestroy() {
     await this._graphQlWsServer?.stop();
+    await this._subscriptionTransportWsServer?.close();
     await this._apolloServer?.stop();
   }
 

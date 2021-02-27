@@ -24,25 +24,7 @@ describe('subscriptions-transport-ws protocol', () => {
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
-      imports: [
-        AppModule.forRoot({
-          context: ({ connection }) => {
-            return connection?.context ?? {};
-          },
-          subscriptions: {
-            onConnect: (connectionParams) => {
-              if (!connectionParams.authorization) {
-                throw new Error('Missing authorization header');
-              }
-              const { authorization } = connectionParams;
-              if (!authorization.startsWith('Bearer ')) {
-                throw new Error('Malformed authorization token');
-              }
-              return { user: authorization.split('Bearer ')[1] };
-            },
-          },
-        }),
-      ],
+      imports: [AppModule],
     }).compile();
 
     app = module.createNestApplication();

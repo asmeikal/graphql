@@ -4,9 +4,10 @@ import { Config, GraphQLExecutor } from 'apollo-server-core';
 import { GraphQLSchema } from 'graphql';
 import { DefinitionsGeneratorOptions } from '../graphql-ast.explorer';
 import { BuildSchemaOptions } from './build-schema-options.interface';
-import { ServerOptions } from 'graphql-ws';
+import { Context } from 'graphql-ws';
 import { IncomingMessage } from 'http';
 import * as ws from 'ws';
+import { ConnectionContext } from 'subscriptions-transport-ws';
 
 export interface ServerRegistration {
   path?: string;
@@ -35,19 +36,21 @@ export type GraphqlWsContextExtra = {
   readonly request: IncomingMessage;
 };
 
-export type GraphQLWsSubscriptionsConfig = Partial<
-  Pick<
-    ServerOptions<GraphqlWsContextExtra>,
-    'connectionInitWaitTimeout' | 'onConnect' | 'onDisconnect' | 'onClose'
-  >
-> & {
-  protocol: 'graphql-ws';
-  keepAlive?: number;
-};
+type SubscriptionTransportWsOnConnectOptions = [Object, WebSocket, ConnectionContext];
 
-export type SubscriptionConfig =
-  | DefaultSubscriptionsConfig
-  | GraphQLWsSubscriptionsConfig;
+type GraphQLWsOnConnectOptions = [Context<GraphqlWsContextExtra>];
+
+type SubscriptionTransportWsOnDisconnectOptions = [WebSocket, ConnectionContext];
+
+type GraphQLWsOnDisconnectOptions = [Context<GraphqlWsContextExtra>, number, string];
+
+export interface SubscriptionConfig {
+  path?: string;
+  connectonInitWaitTimeout?: number;
+  keepAlive?: number;
+  onConnect?: (...args: SubscriptionTransportWsOnConnectOptions | GraphQLWsOnConnectOptions) => any;
+  onDisconnect?: (...args: SubscriptionTransportWsOnDisconnectOptions | GraphQLWsOnDisconnectOptions) => any;
+}
 
 export type Enhancer = 'guards' | 'interceptors' | 'filters';
 export interface GqlModuleOptions
@@ -69,7 +72,7 @@ export interface GqlModuleOptions
     schema: GraphQLSchema,
   ) => GraphQLExecutor | Promise<GraphQLExecutor>;
   installSubscriptionHandlers?: boolean;
-  subscriptions?: SubscriptionConfig;
+  subscriptions?: SubscriptionConfig | false;
   resolverValidationOptions?: IResolverValidationOptions;
   directiveResolvers?: any;
   schemaDirectives?: Record<string, any>;

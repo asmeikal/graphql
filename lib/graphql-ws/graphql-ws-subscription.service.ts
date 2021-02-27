@@ -26,10 +26,7 @@ export class GraphqlWsSubscriptionService {
     private readonly options: GraphqlWsSubscriptionServiceOptions,
     server: any,
   ) {
-    this.wss = new ws.Server({
-      server,
-      path: '/graphql',
-    });
+    this.wss = server;
     this.initialize();
   }
 

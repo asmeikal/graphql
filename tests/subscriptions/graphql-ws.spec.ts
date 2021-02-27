@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { Client, Context, createClient } from 'graphql-ws';
+import { Client, createClient } from 'graphql-ws';
 import { AppModule } from './app/app.module';
 import { pubSub } from './app/notification.resolver';
 import * as ws from 'ws';
@@ -8,8 +8,6 @@ import ApolloClient, { ApolloError } from 'apollo-client';
 import { InMemoryCache } from 'apollo-cache-inmemory';
 import { GraphQLWsLink } from './utils/graphql-ws.link';
 import { gql } from 'apollo-server-express';
-import { MissingAuthorizationException } from './utils/missing-authorization.exception';
-import { MalformedTokenException } from './utils/malformed-token.exception';
 
 const subscriptionQuery = gql`
   subscription TestSubscription($id: String!) {
@@ -26,32 +24,7 @@ describe('graphql-ws protocol', () => {
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
-      imports: [
-        AppModule.forRoot({
-          context: (context) => {
-            const { authorization } = context?.connectionParams ?? {};
-            if (authorization) {
-              return { user: authorization.split('Bearer ')[1] };
-            } else {
-              return {};
-            }
-          },
-          subscriptions: {
-            protocol: 'graphql-ws',
-            onConnect: (context: Context) => {
-              if (!context.connectionParams.authorization) {
-                throw new MissingAuthorizationException();
-              }
-              const authorization = context.connectionParams
-                .authorization as string;
-              if (!authorization.startsWith('Bearer ')) {
-                throw new MalformedTokenException();
-              }
-              return true;
-            },
-          },
-        }),
-      ],
+      imports: [AppModule],
     }).compile();
 
     app = module.createNestApplication();
