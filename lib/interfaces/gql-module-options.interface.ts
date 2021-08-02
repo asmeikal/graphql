@@ -32,7 +32,9 @@ export type GraphQLWsSubscriptionsConfig = Partial<
     | 'onClose'
     | 'onSubscribe'
     | 'onNext'
-  >
+  > & {
+  keepAlive: number;
+}
 >;
 
 export type GraphQLSubscriptionTransportWsConfig = Partial<
